@@ -21,3 +21,10 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release-type: simple
+
+  docker-release:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    uses: ./.github/workflows/docker-release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
