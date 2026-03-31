@@ -58,7 +58,7 @@ services:
     depends_on:
       - vpn
   vpn:
-    image: j0ner/pia-wireguard
+    image: yubofr/pia-wireguard
     container_name: vpn
     restart: unless-stopped
     environment:
