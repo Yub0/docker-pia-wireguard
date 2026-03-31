@@ -1,0 +1,6 @@
+# Release Please manifest
+# This file is used by Release Please to track the current version
+# Initial version for the fork
+{
+  ".": "1.0.0"
+}
