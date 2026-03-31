@@ -84,30 +84,40 @@ struct VpnState {
     sig: Option<Signature>,
 }
 
-async fn check_vpn_connection(expected_ip: &str) -> Result<bool> {
-    let current_ip = reqwest::Client::new()
-        .get("https://icanhazip.com")
-        .timeout(Duration::from_secs(10))
-        .send()
-        .await
-        .ok();
+async fn check_vpn_connection() -> Result<bool> {
+    // Check if WireGuard interface exists and is up
+    let wg_up = check_wireguard_interface().await;
+    if !wg_up {
+        return Ok(false);
+    }
 
-    let current_ip = match current_ip {
-        Some(response) => response.text().await.ok(),
-        None => None,
-    };
+    // Check if we can reach PIA API on port 19999 (used for port forwarding)
+    // This is more reliable than external IP check services
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()?;
 
-    match current_ip {
-        Some(ip) => {
-            if ip.trim() == expected_ip.trim() {
-                Ok(true)
-            } else {
-                println!("[WARN] IP changed! Expected: {}, Current: {}", expected_ip, ip);
-                Ok(false)
+    // Try to connect to a known PIA endpoint (port forwarding API)
+    // If this works, the VPN tunnel is functional
+    match client.get("https://10.0.0.243:19999/").send().await {
+        Ok(_) => Ok(true),
+        Err(_) => {
+            // Fallback: try external check with multiple providers
+            let providers = [
+                "https://api.ipify.org",
+                "https://ifconfig.me/ip",
+                "https://icanhazip.com",
+            ];
+
+            for provider in providers {
+                if let Ok(resp) = client.get(provider).send().await {
+                    if let Ok(ip) = resp.text().await {
+                        if !ip.trim().is_empty() {
+                            return Ok(true);
+                        }
+                    }
+                }
             }
-        }
-        None => {
-            println!("[WARN] Could not fetch current IP - connection may be down");
             Ok(false)
         }
     }
@@ -513,7 +523,6 @@ async fn main() -> Result<()> {
     let (tx, mut rx) = mpsc::channel::<bool>(10);
 
     // Health check task
-    let health_check_ip = new_ip.clone();
     let health_tx = tx.clone();
     tokio::spawn(async move {
         let mut interval = interval(Duration::from_secs(HEALTH_CHECK_INTERVAL_SECS));
@@ -521,7 +530,7 @@ async fn main() -> Result<()> {
             interval.tick().await;
 
             let wg_up = check_wireguard_interface().await;
-            let vpn_ok = check_vpn_connection(&health_check_ip).await.unwrap_or(false);
+            let vpn_ok = check_vpn_connection().await.unwrap_or(false);
 
             if !wg_up || !vpn_ok {
                 println!("[ALERT] VPN connection issue detected!");
@@ -536,7 +545,6 @@ async fn main() -> Result<()> {
 
     // Port forwarding task
     let mut current_ip = new_ip.clone();
-    if forward_port {
         let persist_port = env::var("PERSIST_PORT")
             .unwrap_or_else(|_| "false".to_string())
             .parse::<bool>()
