@@ -3,15 +3,8 @@ name: Docker Build & Publish
 on:
   push:
     branches: ["main"]
-    tags: ["v*"]
   pull_request:
     branches: ["main"]
-  workflow_dispatch:
-  workflow_call:
-    inputs:
-      tag:
-        required: false
-        type: string
 
 env:
   REGISTRY: docker.io
